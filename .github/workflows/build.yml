@@ -4,7 +4,23 @@ on:
   push:
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: User
+            page: index.html
+            appid: com.khelo.tournament
+            label: Tournament
+          - name: Admin
+            page: admin.html
+            appid: com.khelo.tournament.admin
+            label: Tournament Admin
     runs-on: ubuntu-latest
+    env:
+      PAGE: ${{ matrix.page }}
+      APPID: ${{ matrix.appid }}
+      LABEL: ${{ matrix.label }}
     steps:
       - uses: actions/checkout@v4
       - name: Check HTML files
@@ -53,6 +69,7 @@ jobs:
           package com.khelo.tournament;
           import android.app.Activity;import android.content.Intent;import android.graphics.Bitmap;import android.net.Uri;import android.os.*;import android.view.*;import android.webkit.*;import android.widget.*;
           public class MainActivity extends Activity{
+           static final String START="file:///android_asset/index.html";//START
            WebView w;int taps=0;long last=0;
            void ext(Uri u){try{startActivity(new Intent(Intent.ACTION_VIEW,u));}catch(Exception e){}}
            protected void onCreate(Bundle b){super.onCreate(b);
@@ -70,10 +87,23 @@ jobs:
             hot.setOnClickListener(new View.OnClickListener(){public void onClick(View v){long n=System.currentTimeMillis();taps=(n-last<1500)?taps+1:1;last=n;if(taps>=7){taps=0;w.loadUrl("file:///android_asset/admin.html");}}});
             f.addView(hot,new FrameLayout.LayoutParams(d,d,Gravity.TOP|Gravity.LEFT));
             setContentView(f);
-            w.loadUrl("file:///android_asset/index.html");}
-           public void onBackPressed(){if(w.canGoBack())w.goBack();else if(w.getUrl()!=null&&w.getUrl().contains("admin.html"))w.loadUrl("file:///android_asset/index.html");else super.onBackPressed();}
+            w.loadUrl(START);}
+           public void onBackPressed(){if(w.canGoBack())w.goBack();else if(w.getUrl()!=null&&!w.getUrl().equals(START))w.loadUrl(START);else super.onBackPressed();}
           }
           EOF_E
+      - name: Apply name, start page and icon
+        run: |
+          sed -i "s|applicationId 'com.khelo.tournament'|applicationId '$APPID'|" app/build.gradle
+          sed -i "s|android:label=\"Tournament\"|android:label=\"$LABEL\"|" app/src/main/AndroidManifest.xml
+          sed -i "s|android_asset/index.html\";//START|android_asset/$PAGE\";//START|" app/src/main/java/com/khelo/tournament/MainActivity.java
+          ICON=""
+          if [ "$PAGE" = "admin.html" ] && [ -f www/admin-icon.png ]; then ICON=www/admin-icon.png; elif [ -f www/icon.png ]; then ICON=www/icon.png; fi
+          if [ -n "$ICON" ]; then
+            head -c 8 "$ICON" | grep -q PNG || { echo "ERROR: $ICON আসল PNG নয় (JPG নাম বদলালে হয় না)। PNG করে আবার দিন"; exit 1; }
+            mkdir -p app/src/main/res/mipmap-xxxhdpi
+            cp "$ICON" app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            sed -i 's|<application |<application android:icon="@mipmap/ic_launcher" |' app/src/main/AndroidManifest.xml
+          fi
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
@@ -81,5 +111,5 @@ jobs:
         run: gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: Tournament-APK
+          name: Tournament-${{ matrix.name }}-APK
           path: app/build/outputs/apk/debug/app-debug.apk
